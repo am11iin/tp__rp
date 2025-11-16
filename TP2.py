@@ -1,152 +1,139 @@
+
+# - Chromosome (63 genes, crossover, mutation)
+# - Knight (move_forward, move_backward, check_moves, evaluate_fitness)
+# - Population (tournament selection, new generation, evaluation)
+# - Main loop 
+
+
 import random
-import tkinter as tk
-from tkinter import Canvas
+import pygame
+import sys
 
-
-#   CLASS CHROMOSOME
-
+# CLASS CHROMOSOME
 
 class Chromosome:
+    LENGTH = 63
+
     def __init__(self, genes=None):
+        # Creates a chromosome of 63 moves in [1..8]
         if genes is None:
-            # Generate random chromosome of 63 moves (1..8)
-            self.genes = [random.randint(1, 8) for _ in range(63)]
+            self.genes = [random.randint(1, 8) for _ in range(self.LENGTH)]
         else:
-            self.genes = genes
+            if len(genes) != self.LENGTH:
+                raise ValueError("Chromosome must contain exactly 63 genes.")
+            self.genes = genes[:]
 
     def crossover(self, partner):
-        # Single-point crossover
-        point = random.randint(1, len(self.genes) - 1)
+        # Single-point crossover (PDF requirement)
+        point = random.randint(1, self.LENGTH - 1)
+        c1 = self.genes[:point] + partner.genes[point:]
+        c2 = partner.genes[:point] + self.genes[point:]
+        return Chromosome(c1), Chromosome(c2)
 
-        child1 = self.genes[:point] + partner.genes[point:]
-        child2 = partner.genes[:point] + self.genes[point:]
-
-        return Chromosome(child1), Chromosome(child2)
-
-    def mutation(self, mutation_rate=0.02):
-        for i in range(len(self.genes)):
+    def mutation(self, mutation_rate=0.01):
+        # Mutate random gene → new random move
+        for i in range(self.LENGTH):
             if random.random() < mutation_rate:
                 self.genes[i] = random.randint(1, 8)
 
-
-
-#   CLASS KNIGHT 
-
-
+# CLASS KNIGHT
 class Knight:
+    # Direction mapping EXACTLY as in PDF
+    MOVES = {
+        1: (1, -2),   # up-right
+        2: (2, -1),   # right-up
+        3: (2, 1),    # right-down
+        4: (1, 2),    # down-right
+        5: (-1, 2),   # down-left
+        6: (-2, 1),   # left-down
+        7: (-2, -1),  # left-up
+        8: (-1, -2),  # up-left
+    }
+
     def __init__(self, chromosome=None):
-        if chromosome is None:
-            self.chromosome = Chromosome()
-        else:
-            self.chromosome = chromosome
-        
+        self.chromosome = chromosome if chromosome else Chromosome()
         self.position = (0, 0)
-        self.fitness = 0
         self.path = [(0, 0)]
-    
+        self.fitness = 0
+
     def move_forward(self, direction):
         x, y = self.position
-        
-        if direction == 1:
-            new_position = (x + 1, y + 2)
-        elif direction == 2:
-            new_position = (x + 2, y + 1)
-        elif direction == 3:
-            new_position = (x + 2, y - 1)
-        elif direction == 4:
-            new_position = (x + 1, y - 2)
-        elif direction == 5:
-            new_position = (x - 1, y - 2)
-        elif direction == 6:
-            new_position = (x - 2, y - 1)
-        elif direction == 7:
-            new_position = (x - 2, y + 1)
-        elif direction == 8:
-            new_position = (x - 1, y + 2)
-        
-        self.position = new_position
-        return new_position
-    
+        dx, dy = Knight.MOVES[direction]
+        new_pos = (x + dx, y + dy)
+        self.position = new_pos
+        return new_pos
+
     def move_backward(self, direction):
+        # Undo a move by applying opposite vector
         x, y = self.position
-        
-        if direction == 1:
-            self.position = (x - 1, y - 2)
-        elif direction == 2:
-            self.position = (x - 2, y - 1)
-        elif direction == 3:
-            self.position = (x - 2, y + 1)
-        elif direction == 4:
-            self.position = (x - 1, y + 2)
-        elif direction == 5:
-            self.position = (x + 1, y + 2)
-        elif direction == 6:
-            self.position = (x + 2, y + 1)
-        elif direction == 7:
-            self.position = (x + 2, y - 1)
-        elif direction == 8:
-            self.position = (x + 1, y - 2)
-    
+        dx, dy = Knight.MOVES[direction]
+        self.position = (x - dx, y - dy)
+
     def check_moves(self):
+        # Reset path
         self.position = (0, 0)
         self.path = [(0, 0)]
-        
+
+        # Random cycle direction (forward/backward)
         cycle_forward = random.choice([True, False])
-        
-        for i in range(len(self.chromosome.genes)):
-            current_move = self.chromosome.genes[i]
-            new_position = self.move_forward(current_move)
-            x, y = new_position
-            is_valid = True
-            
-            if x < 0 or x > 7 or y < 0 or y > 7:
-                is_valid = False
-            elif new_position in self.path:
-                is_valid = False
-            
-            if is_valid:
-                self.path.append(new_position)
-            else:
-                self.move_backward(current_move)
-                valid_move_found = False
-                
+
+        for i, move in enumerate(self.chromosome.genes):
+            original_move = move
+
+            # Try original move
+            new_pos = self.move_forward(original_move)
+            x, y = new_pos
+
+            if 0 <= x < 8 and 0 <= y < 8 and new_pos not in self.path:
+                self.path.append(new_pos)
+                continue
+
+            # Cancel illegal
+            self.move_backward(original_move)
+
+            # Try cycling moves
+            valid = False
+            for k in range(1, 8):
                 if cycle_forward:
-                    for offset in range(1, 8):
-                        test_move = ((current_move - 1 + offset) % 8) + 1
-                        test_position = self.move_forward(test_move)
-                        tx, ty = test_position
-                        
-                        if (0 <= tx <= 7 and 0 <= ty <= 7 and 
-                            test_position not in self.path):
-                            self.path.append(test_position)
-                            self.chromosome.genes[i] = test_move
-                            valid_move_found = True
-                            break
-                        else:
-                            self.move_backward(test_move)
+                    new_move = ((original_move + k - 1) % 8) + 1
                 else:
-                    for offset in range(1, 8):
-                        test_move = ((current_move - 1 - offset) % 8) + 1
-                        test_position = self.move_forward(test_move)
-                        tx, ty = test_position
-                        
-                        if (0 <= tx <= 7 and 0 <= ty <= 7 and 
-                            test_position not in self.path):
-                            self.path.append(test_position)
-                            self.chromosome.genes[i] = test_move
-                            valid_move_found = True
-                            break
-                        else:
-                            self.move_backward(test_move)
-    
+                    new_move = ((original_move - k - 1) % 8) + 1
+
+                test_pos = self.move_forward(new_move)
+                x, y = test_pos
+
+                if 0 <= x < 8 and 0 <= y < 8 and test_pos not in self.path:
+                    self.path.append(test_pos)
+                    self.chromosome.genes[i] = new_move
+                    valid = True
+                    break
+                else:
+                    self.move_backward(new_move)
+
+            # If none valid → keep last move as PDF says
+            if not valid:
+                final_pos = self.move_forward(original_move)
+                self.path.append(final_pos)
+
     def evaluate_fitness(self):
-        self.fitness = len(self.path)
+        # Count valid visited squares exactly as PDF
+        visited = set()
+        self.fitness = 0
+
+        for pos in self.path:
+            x, y = pos
+            if not (0 <= x < 8 and 0 <= y < 8):
+                break
+            if pos in visited:
+                break
+            visited.add(pos)
+            self.fitness += 1
+            if self.fitness == 64:
+                break
+
         return self.fitness
 
-
-
-#   CLASS POPULATION 
-
+# POPULATION CLASS
 
 class Population:
     def __init__(self, population_size):
@@ -155,20 +142,20 @@ class Population:
         self.knights = [Knight() for _ in range(population_size)]
 
     def check_population(self):
-        for knight in self.knights:
-            knight.check_moves()
+        for k in self.knights:
+            k.check_moves()
 
     def evaluate(self):
-        best_knight = None
+        best = None
         maxFit = -1
 
-        for knight in self.knights:
-            fitness = knight.evaluate_fitness()
-            if fitness > maxFit:
-                maxFit = fitness
-                best_knight = knight
+        for k in self.knights:
+            fit = k.evaluate_fitness()
+            if fit > maxFit:
+                maxFit = fit
+                best = k
 
-        return maxFit, best_knight
+        return maxFit, best
 
     def tournament_selection(self, size=3):
         sample = random.sample(self.knights, size)
@@ -176,87 +163,104 @@ class Population:
         return sample[0], sample[1]
 
     def create_new_generation(self):
-        new_knights = []
+        new_pop = []
 
-        while len(new_knights) < self.population_size:
-            parent1, parent2 = self.tournament_selection()
+        while len(new_pop) < self.population_size:
+            p1, p2 = self.tournament_selection()
 
-            child1_chrom, child2_chrom = parent1.chromosome.crossover(
-                parent2.chromosome
-            )
+            c1, c2 = p1.chromosome.crossover(p2.chromosome)
+            c1.mutation()
+            c2.mutation()
 
-            child1_chrom.mutation()
-            child2_chrom.mutation()
+            new_pop.append(Knight(c1))
+            if len(new_pop) < self.population_size:
+                new_pop.append(Knight(c2))
 
-            new_knights.append(Knight(child1_chrom))
-
-            if len(new_knights) < self.population_size:
-                new_knights.append(Knight(child2_chrom))
-
-        self.knights = new_knights
+        self.knights = new_pop
         self.generation += 1
 
 
+# BEAUTIFUL PYGAME INTERFACE
+
+def show_interface(knight):
+    pygame.init()
+    cell = 80
+    size = 8 * cell
+    screen = pygame.display.set_mode((size, size))
+    pygame.display.set_caption("Knight's Tour - Genetic Algorithm")
+
+    font = pygame.font.SysFont("Arial", 22, bold=True)
+    small_font = pygame.font.SysFont("Arial", 18)
+    clock = pygame.time.Clock()
+
+    path = knight.path
+
+    def center(pos):
+        x, y = pos
+        return x * cell + cell // 2, y * cell + cell // 2
+
+    running = True
+    step = 0
+    max_steps = len(path)
+    speed = 5  # frames per second
+
+    while running:
+        clock.tick(speed)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+        # Draw chessboard
+        for y in range(8):
+            for x in range(8):
+                color = (240, 217, 181) if (x + y) % 2 == 0 else (181, 136, 99)
+                pygame.draw.rect(screen, color, (x * cell, y * cell, cell, cell))
+
+        # Draw path up to current step
+        for i in range(step):
+            cx, cy = center(path[i])
+            pygame.draw.circle(screen, (255, 0, 0), (cx, cy), cell // 3)
+            txt = font.render(str(i + 1), True, (255, 255, 255))
+            screen.blit(txt, txt.get_rect(center=(cx, cy)))
+
+        # Draw connecting lines
+        if step > 1:
+            pts = [center(path[i]) for i in range(step)]
+            pygame.draw.lines(screen, (0, 0, 255), False, pts, 4)
+
+        # Highlight start and end
+        start_x, start_y = path[0]
+        pygame.draw.rect(screen, (0, 255, 0), (start_x * cell, start_y * cell, cell, cell), 4)
+        if step > 0:
+            end_x, end_y = path[step - 1]
+            pygame.draw.rect(screen, (255, 215, 0), (end_x * cell, end_y * cell, cell, cell), 4)
+
+        # Display fitness and steps
+        info_text = f"Fitness: {knight.fitness} | Steps: {max_steps}"
+        screen.blit(small_font.render(info_text, True, (0, 0, 0)), (10, 10))
+
+        pygame.display.update()
+
+        # Increment step for animation
+        if step < max_steps:
+            step += 1
+
+    pygame.quit()
 
 
-#   INTERFACE TKINTER (PDF)
 
-
-def show_solution(best_knight):
-    window = tk.Tk()
-    window.title("Knight's Tour Solution - Genetic Algorithm")
-
-    cell_size = 60
-    board_size = 8 * cell_size
-
-    canvas = Canvas(window, width=board_size, height=board_size)
-    canvas.pack()
-
-    # Map positions to order index
-    order_map = {}
-    for i, pos in enumerate(best_knight.path):
-        order_map[pos] = i + 1
-
-    # Draw board
-    for row in range(8):
-        for col in range(8):
-            x1 = col * cell_size
-            y1 = row * cell_size
-            x2 = x1 + cell_size
-            y2 = y1 + cell_size
-
-            # Chessboard colors
-            fill_color = "#EEE" if (row + col) % 2 == 0 else "#999"
-            canvas.create_rectangle(x1, y1, x2, y2, fill=fill_color)
-
-            pos = (col, row)
-            if pos in order_map:
-                canvas.create_text(
-                    x1 + cell_size / 2,
-                    y1 + cell_size / 2,
-                    text=str(order_map[pos]),
-                    font=("Arial", 16, "bold"),
-                    fill="red"
-                )
-
-    window.mainloop()
-
-
-
-
-#   MAIN (PDF)
-
-
+# ---------------------------------------------------
+# MAIN FUNCTION (AS IN THE PDF)
+# ---------------------------------------------------
 def main():
     population_size = 50
     population = Population(population_size)
 
     while True:
         population.check_population()
+        maxFit, best = population.evaluate()
 
-        maxFit, bestSolution = population.evaluate()
-
-        print(f"Generation {population.generation} - Best fitness = {maxFit}")
+        print(f"Generation {population.generation} | Best Fitness = {maxFit}")
 
         if maxFit == 64:
             print("Solution found!")
@@ -264,9 +268,7 @@ def main():
 
         population.create_new_generation()
 
-    # Show final solution
-    show_solution(bestSolution)
-
+    show_interface(best)
 
 
 if __name__ == "__main__":
